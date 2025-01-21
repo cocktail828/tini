@@ -1,3 +1,16 @@
+# A fork of `tini`
+## What's this
+This is a modified version of Tini that includes experimental features such as HOOK support. It introduces the following behavior:
+- At startup:
+    It spawns a background process to execute the command defined by the `TINI_REGISTER_HOOK` environment variable.
+
+- At shutdown:
+    It spawns a background process to execute the command defined by the `TINI_DEREGISTER_HOOK` environment variable. Additionally, it ensures that the `TINI_REGISTER_HOOK` process is terminated if it is still running.
+
+This enhancement allows for custom initialization and cleanup logic to be integrated seamlessly with Tini's lifecycle management.
+
+
+
 <!--
 
 #####################################

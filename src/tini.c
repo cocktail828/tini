@@ -102,6 +102,10 @@ static int32_t expect_status[(STATUS_MAX - STATUS_MIN + 1) / 32];
 
 #define TINI_VERSION_STRING "tini version " TINI_VERSION TINI_GIT
 
+#ifdef HAS_HOOK
+#define REGISTER_HOOK_ENV_VAR "TINI_REGISTER_HOOK"
+#define DEREGISTER_HOOK_ENV_VAR "TINI_DEREGISTER_HOOK"
+#endif
 
 #if HAS_SUBREAPER
 static unsigned int subreaper = 0;
@@ -127,6 +131,59 @@ To fix the problem, "
 "set the environment variable " SUBREAPER_ENV_VAR " to register Tini as a child subreaper, or "
 #endif
 "run Tini as PID 1.";
+
+#ifdef HAS_HOOK
+pid_t register_hook_pid = -1;
+pid_t tini_pid = -1;
+
+void register_hook() {
+    const char *hook_script = getenv(REGISTER_HOOK_ENV_VAR);
+    if (hook_script == NULL) {
+        PRINT_INFO(REGISTER_HOOK_ENV_VAR " is not set.");
+        return;
+    }
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        execl(hook_script, hook_script, (char *)NULL);
+        exit(EXIT_FAILURE);
+    } else if (pid > 0) {
+        register_hook_pid = pid;
+        PRINT_INFO("Register Hook started with PID: %d", pid);
+    } else {
+        PRINT_WARNING("Register Hook process fork failed.");
+    }
+}
+
+__attribute__((destructor)) void deregister_hook() {
+	if (getpid() != tini_pid)
+		return;
+
+    const char *hook_script = getenv(DEREGISTER_HOOK_ENV_VAR);
+    if (hook_script == NULL) {
+        PRINT_INFO(DEREGISTER_HOOK_ENV_VAR " is not set.");
+        return;
+    }
+
+    if (register_hook_pid != -1) {
+        PRINT_INFO("Stopping Register Hook (PID: %d)...", register_hook_pid);
+        kill(register_hook_pid, SIGKILL);     
+        waitpid(register_hook_pid, NULL, 0);  
+        register_hook_pid = -1;
+    }
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        execl(hook_script, hook_script, (char *)NULL);
+        exit(EXIT_FAILURE);
+    } else if (pid > 0) {
+        waitpid(pid, NULL, 0);
+        PRINT_INFO("Deregister Hook completed.");
+    } else {
+        PRINT_WARNING("Register Hook process fork failed.");
+    }
+}
+#endif
 
 int restore_signals(const signal_configuration_t* const sigconf_ptr) {
 	if (sigprocmask(SIG_SETMASK, sigconf_ptr->sigmask_ptr, NULL)) {
@@ -655,12 +712,21 @@ int main(int argc, char *argv[]) {
 	/* Are we going to reap zombies properly? If not, warn. */
 	reaper_check();
 
+#if HAS_HOOK
+	tini_pid = getpid();
+#endif
+
 	/* Go on */
 	int spawn_ret = spawn(&child_sigconf, *child_args_ptr, &child_pid);
 	if (spawn_ret) {
 		return spawn_ret;
 	}
 	free(child_args_ptr);
+
+#if HAS_HOOK
+	if (getpid() == tini_pid)
+		register_hook();
+#endif
 
 	while (1) {
 		/* Wait for one signal, and forward it */

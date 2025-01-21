@@ -8,9 +8,14 @@ set (tini_VERSION_PATCH 0)
 
 # Build options
 option(MINIMAL "Disable argument parsing and verbose output" OFF)
+option(WITH_HOOK "Enable experimental function" ON)
 
 if(MINIMAL)
 	add_definitions(-DTINI_MINIMAL=1)
+endif()
+
+if(WITH_HOOK)
+  add_definitions(-DHAS_HOOK=1)
 endif()
 
 # Extract git version and dirty-ness

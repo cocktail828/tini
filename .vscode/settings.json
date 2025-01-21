@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "*.http": "http",
+        "*.proto": "proto3",
+        "cstdlib": "c"
+    }
+}
