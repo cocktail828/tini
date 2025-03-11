@@ -102,6 +102,12 @@ static int32_t expect_status[(STATUS_MAX - STATUS_MIN + 1) / 32];
 
 #define TINI_VERSION_STRING "tini version " TINI_VERSION TINI_GIT
 
+#define REGISTER_HOOK_ENV_VAR "TINI_REGISTER_HOOK"
+static char *register_hook[64] = {0};
+#define DEREGISTER_HOOK_ENV_VAR "TINI_DEREGISTER_HOOK"
+static char *deregister_hook[64] = {0};
+
+#define IS_VALID_ARGS(args) (args[0] != NULL)
 
 #if HAS_SUBREAPER
 static unsigned int subreaper = 0;
@@ -392,6 +398,16 @@ int parse_args(const int argc, char* const argv[], char* (**child_args_ptr_ptr)[
 	return 0;
 }
 
+void build_argv(char* hook, char* argv[64]) {
+    int argc = 0;
+    char* token = strtok(hook, " ");
+    while (token != NULL && argc < 63) {
+        argv[argc++] = token;
+        token = strtok(NULL, " ");
+    }
+    argv[argc] = NULL;
+}
+
 int parse_env(void) {
 #if HAS_SUBREAPER
 	if (getenv(SUBREAPER_ENV_VAR) != NULL) {
@@ -406,6 +422,18 @@ int parse_env(void) {
 	char* env_verbosity = getenv(VERBOSITY_ENV_VAR);
 	if (env_verbosity != NULL) {
 		verbosity = atoi(env_verbosity);
+	}
+
+	char *cmd = getenv(REGISTER_HOOK_ENV_VAR);
+	if (cmd != NULL) {
+		PRINT_INFO("Find environment '%s'='%s' ", REGISTER_HOOK_ENV_VAR, cmd);
+		build_argv(cmd, register_hook);
+	}
+
+	cmd = getenv(DEREGISTER_HOOK_ENV_VAR);
+	if (cmd != NULL) {
+		PRINT_INFO("Find environment '%s'='%s' ", DEREGISTER_HOOK_ENV_VAR, cmd);
+		build_argv(cmd, deregister_hook);
 	}
 
 	return 0;
@@ -662,20 +690,38 @@ int main(int argc, char *argv[]) {
 	}
 	free(child_args_ptr);
 
+	if (IS_VALID_ARGS(register_hook)) {
+		pid_t cid;
+		spawn_ret = spawn(&child_sigconf, register_hook, &cid);
+		if (spawn_ret) {
+			return spawn_ret;
+		}
+	}
+
+	int ret = 0;
 	while (1) {
 		/* Wait for one signal, and forward it */
 		if (wait_and_forward_signal(&parent_sigset, child_pid)) {
-			return 1;
+			ret = 1;
+			break;
 		}
 
 		/* Now, reap zombies */
 		if (reap_zombies(child_pid, &child_exitcode)) {
-			return 1;
+			ret = 1;
+			break;
 		}
 
 		if (child_exitcode != -1) {
+			ret = child_exitcode;
 			PRINT_TRACE("Exiting: child has exited");
-			return child_exitcode;
+			break;
 		}
 	}
+
+	if (IS_VALID_ARGS(deregister_hook)) {
+		PRINT_INFO("Running deregister hook");
+		return execvp(deregister_hook[0], deregister_hook);
+	}
+	return ret;
 }
